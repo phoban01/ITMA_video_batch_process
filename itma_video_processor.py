@@ -17,6 +17,20 @@ import os,subprocess,sys,time,logging,re
 from datetime import datetime
 from time import gmtime,strftime
 
+def is_too_old(path):
+	global cut_off_date
+	if cut_off_date != None:
+		input_date_obj =  datetime.strptime(cut_off_date,'%d/%m/%Y')
+		datestr = [int(x) for x in cut_off_date.split('/')]
+		t = os.path.getmtime(path)
+		FMT = '%d/%m/%Y'
+		time_string = time.strftime(FMT,time.gmtime(t))
+		time_string = datetime.strptime(time_string,'%d/%m/%Y')
+		delta = (time_string - input_date_obj).days < 0
+		return delta
+	else:
+		return False
+
 def disk_usage(path):
     st = os.statvfs(path)
     free = st.f_bavail * st.f_frsize
@@ -62,7 +76,7 @@ def get_camera_id(filename):
 	camera_id = match.split('-')[-1][-7:]
 	return camera_id
 
-def time_group(lst,limit=0.25):
+def time_group(lst,limit=0.1):
 	'''Limit is time limit in hours between separate events'''
 	mxf_file_durations = []
 	print 'Getting MXF durations...'		
@@ -89,11 +103,11 @@ def time_group(lst,limit=0.25):
 		last_cid = cid
 	groups.append(g)
 	second_pass_groups = []
-	# remove any groups whose duration is shorted than 30 seconds
+	# remove any groups whose duration is shorted than 3 minutes
 	for i,group in enumerate(groups):
 		durs = [mxf_file_durations[lst.index(j)] for j in group]
 		total_group_duration = sum(durs)
-		if total_group_duration > 30:
+		if total_group_duration > 180:
 			second_pass_groups.append(group)		
 	return second_pass_groups
 
@@ -102,7 +116,10 @@ def get_mxf_files(path):
 	for r,d,f in os.walk(path):
 		for fx in f:
 			if fx.endswith('.MXF') and not fx.startswith('.'):
-				mxfers.append(r+'/'+fx)
+				filepath = os.path.join(r,fx)
+				# remove any files that are older than the cutoff date
+				if is_too_old(filepath) == False:
+					mxfers.append(filepath)
 	return mxfers
 
 def get_names(path):
@@ -159,10 +176,10 @@ def write_metadata_file(event_name,output_path,items,path,names):
 		data_file.write("%%%%% Metadata for folder: {0} %%%%% \n\n".format(event_name))
 		data_file.write('SOURCE: %s\n\n'%path)
 		data_file.write('ITEMS: %s\n\n'%len(items))
-		data_file.write('CREATED ON:\n')
+		data_file.write('\nCREATED ON:\n')
 		for i,obj in enumerate(items):
-			data_file.write('\tITEM %s: %s %s \n\n'%(i+1,creation_time(obj[0])['date'],creation_time(obj[0])['time']))
-		data_file.write("CONTENTS DURATIONS:\n")
+			data_file.write('\tITEM %s: %s %s \n'%(i+1,creation_time(obj[0])['date'],creation_time(obj[0])['time']))
+		data_file.write("\nCONTENTS DURATIONS:\n")
 		for i,obj in enumerate(items):
 			data_file.write('\tITEM %s Duration:%s\n'%(i+1,get_duration(obj)))
 		data_file.write("\nTHE FOLLOWING NAMES WERE FOUND:\n")
@@ -178,12 +195,14 @@ def write_metadata_file(event_name,output_path,items,path,names):
 def make_mxf(lst_file,mxf_file_name):
 	global time_limit
 	ffmpeg_cmd = ["ffmpeg", 
-				# overwrite where necessary ; for peace of mind on re-runs
+				# overwrite [y] / don't overwrite [n]
 				"-n",
 				"-f","concat",
 				"-i",lst_file,
+				"-map","0",
 				"-c","copy",
-				# "-v","quiet",
+				"-ac","2",
+				# "-v","quiet",	
 				]
 	if time_limit != None:
 		ffmpeg_cmd.append("-t")
@@ -198,7 +217,8 @@ def make_mp4(mxf_file_name,mp4_file_name,mxf_duration):
 	# 1000MB = 1GB
 	ideal_file_size = 4500 * 8192
 	audio_bit_rate = 320
-	video_bitrate = int((ideal_file_size / mxf_duration) - audio_bit_rate)
+	# audio bit rate times two because audio is stereo
+	video_bitrate = int((ideal_file_size / mxf_duration) - (audio_bit_rate * 2))
 	# print video_bitrate
 	# first pass
 	ffmpeg_cmd = ["ffmpeg", 
@@ -210,15 +230,14 @@ def make_mp4(mxf_file_name,mp4_file_name,mxf_duration):
 				"-pix_fmt","yuv420p",				
 				"-pass","1",
 				"-c:a","libfdk_aac",
+				"-map","0",
 				"-b:a",str(audio_bit_rate)+'k',
-				"-v","quiet",
-				"-f","mp4"
+				# "-v","quiet",
+				"-ac","2",				
+				"-f","mp4",
 				]
-	if time_limit != None:
-		ffmpeg_cmd.append("-t")
-		ffmpeg_cmd.append(str(time_limit))
 	ffmpeg_cmd.append("/dev/null")
-	print 'Executing first pass MP4 File %s | %s' % (mp4_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
+	print '--> Executing first pass MP4 File %s | %s' % (mp4_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
 	shellCmd = subprocess.Popen(ffmpeg_cmd)
 	shellCmd.wait()
 	# second pass
@@ -231,20 +250,20 @@ def make_mp4(mxf_file_name,mp4_file_name,mxf_duration):
 				"-pix_fmt","yuv420p",				
 				"-pass","2",
 				"-c:a","libfdk_aac",
-				"-b:a",str(audio_bit_rate)+'k',				
-				"-v","quiet"
+				"-map","0",				
+				"-b:a",str(audio_bit_rate)+'k',		
+				"-ac","2",
+				# "-v","quiet",
 				]
-	if time_limit != None:
-		ffmpeg_cmd.append("-t")
-		ffmpeg_cmd.append(str(time_limit))
 	ffmpeg_cmd.append(mp4_file_name)
-	print 'Executing second pass MP4 File %s | %s' % (mp4_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
+	print '--> Executing second pass MP4 File %s | %s' % (mp4_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
 	shellCmd = subprocess.Popen(ffmpeg_cmd)	
 	shellCmd.wait()
 
 def process_folder(path):
 	global OUTPUT_DIRECTORY,event_count
 	event_name = path.split('/')[-1]
+	print "================\nINFO: Processing %s" % event_name
 	output_path = OUTPUT_DIRECTORY + event_name + '/'
 	mxf_files = get_mxf_files(path) 
 	# sort first by time
@@ -273,15 +292,15 @@ def process_folder(path):
 				lst_name = lst_file.split('/')[-1].strip('.txt')		
 				mxf_file_name = output_path + 'MXF/' + lst_name + '.MXF'
 				mp4_file_name = output_path + 'MP4/' + lst_name + '.mp4'
-				print "Writing MXF file %s | %s" % (mxf_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
+				print "--> Writing MXF file %s | %s" % (mxf_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
 				ffmpeg_mxf = make_mxf(lst_file,mxf_file_name)
 				shell = subprocess.Popen(ffmpeg_mxf)
 				shell.wait()
-				print 'MXF File Written to %s' % mxf_file_name
-				print 'Calculating MP4 bitrate...'
+				print '--> MXF File Written to %s' % mxf_file_name
+				print '--> Calculating MP4 bitrate...'
 				mxf_duration = get_duration_in_seconds(mxf_file_name)
 				make_mp4(mxf_file_name,mp4_file_name,mxf_duration)	
-				print 'MP4 File Written to %s | %s' % (mp4_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
+				print '--> MP4 File Written to %s | %s' % (mp4_file_name,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
 				os.remove(lst_file)
 		return True
 	else:
@@ -292,7 +311,8 @@ def process_folder(path):
 def main():
 	global OUTPUT_DIRECTORY
 	card_folders = sorted([ROOT+'/'+f for f in os.listdir(ROOT) if os.path.isdir(ROOT+'/'+f)])
-	for i in card_folders:
+	for i in card_folders[1:]:
+		# remove the double not here and remove not from write_file_lists
 		if not os.path.exists(OUTPUT_DIRECTORY + i.split('/')[-1] + '/.komplete'):
 			success = process_folder(i)
 			# write hidden file when process is complete
@@ -303,8 +323,6 @@ def main():
 		else:
 			print "INFO: %s has been processed already" % i.split('/')[-1]
 
-# probably still needs checking to ensure that MXF files are re-written where necessary if things fail?
-
 event_count = 0
 
 ROOT = "/Volumes/ITMADATA/VIDEO/ITMA video field recordings/in process"
@@ -312,6 +330,8 @@ write_disks = ["/Volumes/ITMAVideoDrobo/"]
 write_disk_index = 0
 OUTPUT_DIRECTORY = write_disks[write_disk_index]
 time_limit = None
+
+cut_off_date = "25/12/2014"
 
 if __name__ == '__main__':
 	main()
