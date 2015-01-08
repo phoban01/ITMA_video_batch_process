@@ -8,10 +8,10 @@ def make_mp4(mxf_file_name,mp4_file_name,mxf_duration):
 	global time_limit
 	# 8192kb = 1MB
 	# 1000MB = 1GB
-	ideal_file_size = 4350 * 8192
+	ideal_file_size = 4499 * 8192
 	audio_bit_rate = 320
 	# audio bit rate times two because audio is stereo
-	video_bitrate = int((ideal_file_size / mxf_duration) - (audio_bit_rate * 2))
+	video_bitrate = int((ideal_file_size / mxf_duration) - (audio_bit_rate))
 	print video_bitrate
 	# first pass
 	ffmpeg_cmd = ["ffmpeg", 
@@ -83,15 +83,15 @@ def main():
 				if path.endswith('.mp4'):
 					fullpath = os.path.join(root,path)
 					size = get_file_size(fullpath)
-					if float(size.split()[0]) >= 4.65 and size.split()[-1] == 'GB':
+					if float(size.split()[0]) >= 4.675 and size.split()[-1] == 'GB':
 						event_count += 1
-						# print '--> Shrinking MP4 file %s' % path
-						# mxf_path = fullpath.replace('MP4','MXF').replace('.mp4','.mxf')
-						# print '--> Calculating MP4 bitrate...'
-						# mxf_duration = get_duration_in_seconds(mxf_path)
+						print '--> Shrinking MP4 file %s' % path
+						mxf_path = fullpath.replace('MP4','MXF').replace('.mp4','.mxf')
+						print '--> Calculating MP4 bitrate...'
+						mxf_duration = get_duration_in_seconds(mxf_path)
 						# print mxf_duration
-						# make_mp4(mxf_path,mp4_file_name,mxf_duration)	
-						# print '--> Shrunken MP4 File Written to %s | %s' % (fullpath,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
+						make_mp4(mxf_path,fullpath,mxf_duration)	
+						print '--> Shrunken MP4 File Written to %s | %s' % (fullpath,strftime("%H:%M:%S | %Y-%m-%d",gmtime()))
 
 event_count = 0
 
@@ -101,11 +101,9 @@ write_disk_index = 0
 OUTPUT_DIRECTORY = write_disks[write_disk_index]
 time_limit = None
 
-print humansize(3686400000)
-
-# if __name__ == '__main__':
-# 	main()
-# 	print 'Total events %s' % event_count
+if __name__ == '__main__':
+	main()
+	print 'Total events %s' % event_count
 
 
 

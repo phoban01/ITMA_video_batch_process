@@ -76,7 +76,7 @@ def get_camera_id(filename):
 	camera_id = match.split('-')[-1][-7:]
 	return camera_id
 
-def time_group(lst,limit=0.1):
+def time_group(lst,limit=0.25):
 	'''Limit is time limit in hours between separate events'''
 	mxf_file_durations = []
 	print 'Getting MXF durations...'		
@@ -215,10 +215,11 @@ def make_mp4(mxf_file_name,mp4_file_name,mxf_duration):
 	global time_limit
 	# 8192kb = 1MB
 	# 1000MB = 1GB
-	ideal_file_size = 4500 * 8192
+	ideal_file_size = 4499 * 8192
 	audio_bit_rate = 320
-	# audio bit rate times two because audio is stereo
-	video_bitrate = int((ideal_file_size / mxf_duration) - (audio_bit_rate * 2))
+	# ?=> audio bit rate times two because audio is stereo -this doesn't seem necessary?
+	# finder file size is > 4.7 but ls -lah shows files are ok.
+	video_bitrate = int((ideal_file_size / mxf_duration) - audio_bit_rate)
 	# print video_bitrate
 	# first pass
 	ffmpeg_cmd = ["ffmpeg", 
@@ -311,9 +312,9 @@ def process_folder(path):
 def main():
 	global OUTPUT_DIRECTORY
 	card_folders = sorted([ROOT+'/'+f for f in os.listdir(ROOT) if os.path.isdir(ROOT+'/'+f)])
-	for i in card_folders[1:]:
-		# remove the double not here and remove not from write_file_lists
+	for i in card_folders:
 		if not os.path.exists(OUTPUT_DIRECTORY + i.split('/')[-1] + '/.komplete'):
+			print OUTPUT_DIRECTORY + i.split('/')[-1]
 			success = process_folder(i)
 			# write hidden file when process is complete
 			if success == True:
@@ -331,7 +332,8 @@ write_disk_index = 0
 OUTPUT_DIRECTORY = write_disks[write_disk_index]
 time_limit = None
 
-cut_off_date = "25/12/2014"
+# cut_off_date = "25/12/2014"
+cut_off_date = None
 
 if __name__ == '__main__':
 	main()
